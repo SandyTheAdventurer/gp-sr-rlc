@@ -493,15 +493,20 @@ def too_big(ind: Node, max_depth: int) -> bool:
 # Fitness
 # ============================================================================
 
+# Fitness of a tree whose output is NaN or inf: above any finite MSE, so invalid trees never beat
+# valid ones (a fixed 1e6 did when the target's variance is large), ordered by size among themselves
+INVALID_SCORE = 1e18
+
+
 def fitness(ind: Node, inputs: Mapping[str, np.ndarray], y: np.ndarray,
             complexity_coef=1e-3, inclusion_coef=1.0) -> float:
     try:
         y_pred = ind.evaluate(inputs)
         if np.any(np.isinf(y_pred)) or np.any(np.isnan(y_pred)):
-            return 1e6 + ind.size()
+            return INVALID_SCORE + ind.size()
         mse = float(np.mean((y - y_pred)**2))
     except Exception:
-        return 1e6 + ind.size()
+        return INVALID_SCORE + ind.size()
     inclusion_penalty = 0.0
     if inclusion_coef:
         used_vars = gather_used_var_names(ind)
@@ -517,10 +522,10 @@ def pareto_objectives(ind: Node, inputs: Mapping[str, np.ndarray], y: np.ndarray
     try:
         y_pred = ind.evaluate(inputs)
         if np.any(np.isinf(y_pred)) or np.any(np.isnan(y_pred)):
-            return 1e6 + ind.size(), float(ind.size())
+            return INVALID_SCORE + ind.size(), float(ind.size())
         mse = float(np.mean((y - y_pred) ** 2))
     except Exception:
-        return 1e6 + ind.size(), float(ind.size())
+        return INVALID_SCORE + ind.size(), float(ind.size())
     inclusion_penalty = 0.0
     if inclusion_coef:
         used_vars = gather_used_var_names(ind)

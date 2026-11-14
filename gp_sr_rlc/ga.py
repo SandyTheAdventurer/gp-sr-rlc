@@ -314,7 +314,8 @@ def run_ga(
                 r2 = float("nan")
             metrics_callback(gen, float(r2))
 
-    if best is not None and best_r2 is None:
+    # best_r2 is only refreshed when the new best evaluates cleanly; report the final best's own
+    if best is not None:
         best_r2 = evaluate_r2(best)
 
     return best, best_r2
