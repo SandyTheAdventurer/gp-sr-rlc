@@ -205,6 +205,21 @@ selector_optimizer = None
 crossover_history = []
 selector_feature_dim = None
 
+# Non-learned informed operators, for comparison (run_ga's crossover_operator): None for the default
+# (random, or the learned selector), "heuristic", "ssc" or "sizefair"
+OPERATORS = (None, "heuristic", "ssc", "sizefair")
+operator_name = None
+semantic_inputs = None  # training inputs, on which SSC measures subtree semantics
+SSC_BOUNDS, SSC_TRIALS = (1e-4, 0.4), 12  # Uy et al. (2011): LBSS, UBSS and Max_Trial
+
+
+def set_operator(name, inputs=None) -> None:
+    """Choose the crossover operator for the run (see OPERATORS)."""
+    global operator_name, semantic_inputs
+    if name not in OPERATORS:
+        raise ValueError(f"crossover_operator must be one of {OPERATORS}, got {name!r}")
+    operator_name, semantic_inputs = name, inputs
+
 
 def set_selector_device(new_device: torch.device) -> None:
     global subtree_selector, selector_optimizer
@@ -282,6 +297,44 @@ def _structural_bias(pair_logits, a_features, b_features, heuristic_bias_scale):
     return pair_logits + _bs * (0.15 * type_match + 0.20 * op_match - 0.10 * size_gap - 0.08 * depth_gap)
 
 
+def _sample_pair(pair_logits, a_features, b_features, heuristic_bias_scale, temperature):
+    """Add the structural bias to the joint logits and sample one (a_idx, b_idx) pair."""
+    pair_logits = _structural_bias(pair_logits, a_features, b_features, heuristic_bias_scale)
+    safe_temp = max(float(temperature), 1e-6)
+    flat_logits = torch.clamp(pair_logits / safe_temp, -10.0, 10.0).reshape(-1)
+    probs = torch.softmax(flat_logits, dim=0)
+    probs = torch.clamp(probs, min=1e-8)
+    probs = probs / probs.sum()
+
+    flat_idx = int(torch.multinomial(probs, 1).item()) if probs.numel() > 1 else 0
+    num_b = int(b_features.shape[0])
+    a_idx = int(flat_idx // max(num_b, 1))
+    b_idx = int(flat_idx % max(num_b, 1))
+    return a_idx, b_idx
+
+
+def _ssc_pick(a_nodes, b_nodes):
+    """Semantic similarity-based crossover (Uy et al., 2011): retry uniform point pairs until the two
+    subtrees' mean absolute output difference on the training inputs lies inside SSC_BOUNDS, keeping
+    the last pair after SSC_TRIALS misses."""
+    lower, upper = SSC_BOUNDS
+    for _ in range(SSC_TRIALS):
+        pa, pb = random.choice(a_nodes), random.choice(b_nodes)
+        with np.errstate(all='ignore'):
+            dist = np.mean(np.abs(pa[0].evaluate(semantic_inputs) - pb[0].evaluate(semantic_inputs)))
+        if lower < dist < upper:
+            break
+    return pa, pb
+
+
+def _size_fair_pick(a_nodes, b_nodes):
+    """Size-fair crossover (Langdon, 2000), size-limit form: a uniform point in the first parent, then a
+    uniform point in the second among subtrees of at most 1 + 2 * (size of the first subtree)."""
+    pa = random.choice(a_nodes)
+    limit = 1 + 2 * pa[0].size()
+    return pa, random.choice([n for n in b_nodes if n[0].size() <= limit])
+
+
 def learned_subtree_crossover(
     a: Node,
     b: Node,
@@ -317,17 +370,7 @@ def learned_subtree_crossover(
                 b_logits, _ = subtree_selector(b_features, return_value=True)
 
                 pair_logits = a_logits.unsqueeze(1) + b_logits.unsqueeze(0)
-                pair_logits = _structural_bias(pair_logits, a_features, b_features, heuristic_bias_scale)
-                safe_temp = max(float(temperature), 1e-6)
-                flat_logits = torch.clamp(pair_logits / safe_temp, -10.0, 10.0).reshape(-1)
-                probs = torch.softmax(flat_logits, dim=0)
-                probs = torch.clamp(probs, min=1e-8)
-                probs = probs / probs.sum()
-
-                flat_idx = int(torch.multinomial(probs, 1).item()) if probs.numel() > 1 else 0
-                num_b = int(b_features.shape[0])
-                a_idx = int(flat_idx // max(num_b, 1))
-                b_idx = int(flat_idx % max(num_b, 1))
+                a_idx, b_idx = _sample_pair(pair_logits, a_features, b_features, heuristic_bias_scale, temperature)
             except Exception as exc:
                 if gp.is_cuda_oom(exc) and gp.DEVICE.type == 'cuda':
                     set_selector_device(torch.device('cpu'))
@@ -337,6 +380,21 @@ def learned_subtree_crossover(
                 b_idx = random.randint(0, len(b_nodes) - 1)
         node_a, parent_a, attr_a, _ = a_nodes[a_idx]
         node_b, parent_b, attr_b, _ = b_nodes[b_idx]
+    elif use_learned and operator_name == "heuristic":
+        # The structural bias alone, no network: the method's pair distribution with zero node logits
+        a_nodes = collect_nodes_with_features(a_clone)
+        b_nodes = collect_nodes_with_features(b_clone)
+        with torch.no_grad():
+            a_feats = torch.stack([feat for _, _, _, feat in a_nodes])
+            b_feats = torch.stack([feat for _, _, _, feat in b_nodes])
+            zeros = torch.zeros(len(a_nodes), len(b_nodes), dtype=a_feats.dtype, device=a_feats.device)
+            a_idx, b_idx = _sample_pair(zeros, a_feats, b_feats, heuristic_bias_scale, temperature)
+        node_a, parent_a, attr_a, _ = a_nodes[a_idx]
+        node_b, parent_b, attr_b, _ = b_nodes[b_idx]
+    elif use_learned and operator_name in ("ssc", "sizefair"):
+        pick = _ssc_pick if operator_name == "ssc" else _size_fair_pick
+        (node_a, parent_a, attr_a), (node_b, parent_b, attr_b) = pick(
+            collect_nodes_with_parents(a_clone), collect_nodes_with_parents(b_clone))
     else:
         # Random selection (baseline)
         a_nodes = collect_nodes_with_parents(a_clone)

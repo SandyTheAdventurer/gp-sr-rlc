@@ -60,8 +60,13 @@ def run_ga(
     allow_pow=False,
     selector_device="auto",
     heuristic_bias_scale=1.0,
+    crossover_operator=None,
 ):
-    """Evolve an expression for y from x. Returns (best_tree, best_r2)."""
+    """Evolve an expression for y from x. Returns (best_tree, best_r2).
+
+    crossover_operator replaces the learned selector, after the warmup and when use_learned_crossover
+    is set, with a non-learned operator for comparison: "heuristic" (the structural bias alone),
+    "ssc" (semantic similarity-based crossover) or "sizefair" (size-fair crossover)."""
     if seed is None:
         seed = gp.DEFAULT_SEED
     gp.set_global_seed(seed)
@@ -76,6 +81,7 @@ def run_ga(
 
     gp.configure_operators(unary_funcs, allow_pow)
     lx.clear_history()
+    lx.set_operator(crossover_operator, inputs)
 
     init_max_depth = max(1, max_init_depth)
     pop = [
@@ -90,7 +96,7 @@ def run_ga(
         pop = [gp.simplify_node_with_timeout(ind, simplify_timeout) for ind in pop]
 
     lx.reset_selector(
-        use_learned_crossover,
+        use_learned_crossover and crossover_operator is None,
         selector_lr=selector_lr,
         mlp_hidden_dim=mlp_hidden_dim,
         use_transformer=use_transformer,
@@ -147,6 +153,7 @@ def run_ga(
         # Update selector every few generations
         if (
             use_learned_crossover
+            and crossover_operator is None
             and gen >= max(1, int(selector_warmup_gens))
             and gen % selector_update_freq == 0
         ):
