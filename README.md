@@ -16,6 +16,9 @@ offspring improve on their parents.
 | `run_benchmark.py` | learned vs random crossover on the benchmarks, with reports |
 | `circuits.py` | the resistor-network application |
 | `run_circuit.py` | evolve a resistor network to a target resistance, and draw it |
+| `experiments.py` | the revision's experiments (test R², recovery, ablations, baselines, noise, resistor runs) |
+| `analysis.py` | the planned tests and figures for those runs |
+| `plans/` | the experiment plans, written before the runs |
 
 ## Running
 
@@ -24,3 +27,5 @@ pip install -r requirements.txt
 python run_benchmark.py --benchmark all --jobs 8
 python run_circuit.py --learned --target 53.9
 ```
+
+The revision's experiments are described in `plans/REVISION_PLAN.md`, with the exact commands.

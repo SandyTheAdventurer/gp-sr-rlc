@@ -5,3 +5,4 @@ sympy==1.14.0
 torch==2.12.1
 tqdm==4.70.1
 matplotlib==3.11.2
+zss==1.2.0
