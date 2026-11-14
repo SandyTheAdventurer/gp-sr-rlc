@@ -312,6 +312,16 @@ def crossover(a: Topology, b: Topology) -> tuple[Topology, Topology]:
     return c1, c2
 
 
+def swap_crossover(a: Topology, b: Topology) -> tuple[Topology, Topology]:
+    """Swap one uniformly random resistor pair: what learned_crossover does, with the pair chosen at random."""
+    c1, c2 = a.clone(), b.clone()
+    if not c1.resistors or not c2.resistors:
+        return c1, c2
+    ai, bi = random.randrange(len(c1.resistors)), random.randrange(len(c2.resistors))
+    c1.resistors[ai], c2.resistors[bi] = c2.resistors[bi], c1.resistors[ai]
+    repair(c1); repair(c2)
+    return c1, c2
+
 # ============================================================================
 # RL-guided crossover
 # ============================================================================
@@ -407,8 +417,14 @@ def evolve(
     temp: float = 0.6,
     seed: int = 0,
     verbose: bool = True,
+    swap: bool = False,
+    stats: dict | None = None,
 ) -> tuple[Topology, float, list[Topology]]:
-    """Returns (best, best_score, pareto_front)."""
+    """Returns (best, best_score, pareto_front).
+
+    Crossover is uniform (each position swapped with probability 0.5); with learned, the selector
+    picks one resistor pair to swap; with swap, one uniformly random pair is swapped (the like-for-like
+    baseline for learned). If stats is a dict, it receives the number of distinct networks scored."""
     set_global_seed(seed)
     cache: dict[tuple, tuple[float, int]] = {}
 
@@ -466,7 +482,12 @@ def evolve(
         while len(next_pop) < pop_size:
             p1, p2 = select(), select()
             if random.random() < cx_rate:
-                c1, c2 = learned_crossover(p1, p2, selector, temp, history) if learned else crossover(p1, p2)
+                if learned:
+                    c1, c2 = learned_crossover(p1, p2, selector, temp, history)
+                elif swap:
+                    c1, c2 = swap_crossover(p1, p2)
+                else:
+                    c1, c2 = crossover(p1, p2)
             else:
                 c1, c2 = p1, p2
             next_pop.append(mutate(c1, mut_rate))
@@ -479,4 +500,6 @@ def evolve(
     final_ranks = pareto_rank(final_objs)
     front = {signature(prune_unused(pop[i])): prune_unused(pop[i]) for i in range(pop_size) if final_ranks[i] == 0}
 
+    if stats is not None:
+        stats["evaluations"] = len(cache)
     return prune_unused(best), best_score, list(front.values())
