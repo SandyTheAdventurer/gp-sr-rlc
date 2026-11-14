@@ -1,0 +1,7 @@
+# Python 3.14. Versions of the laptop that runs the revision's experiments.
+numpy==2.5.4
+scipy==1.18.1
+sympy==1.14.0
+torch==2.12.1
+tqdm==4.70.1
+matplotlib==3.11.2

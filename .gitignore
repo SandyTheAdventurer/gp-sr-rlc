@@ -21,3 +21,11 @@ dataset/
 logs/
 *.log
 *.db
+
+# --- Run outputs written to the working directory ---
+/*_results*.csv
+/shards/
+/topology.pdf
+
+# --- Paper working files (pasted into Overleaf by hand; not published) ---
+/papers/
