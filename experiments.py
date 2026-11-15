@@ -10,9 +10,9 @@ crossover arm, and records the smallest relative error on the final Pareto front
 Rows are appended as runs finish, so an interrupted run resumes where it stopped.
 
 Usage:
-    python experiments.py sr --equations heldout --arms random,full --seeds 30 --jobs 8 --tag main
+    python experiments.py sr --equations all --arms random,full --seeds 30 --jobs 8 --tag main
     python experiments.py sr ... --noise 0.01 --tag noise01
-    python experiments.py sr --equations nguyen_heldout ... --protocol orig --tag nguyen_orig
+    python experiments.py sr --equations nguyen ... --protocol orig --tag nguyen_orig
     python experiments.py circuits --arms swap,learned,uniform --targets 30 --seeds 10 --jobs 8
 """
 from __future__ import annotations
@@ -82,7 +82,9 @@ SR_FIELDS = ["arm", "spec_id", "seed", "status", "train_r2", "test_r2", "test_r2
 
 HELDOUT = [1, 2, 3, 4, 5, 8, 9, 10, 11, *range(101, 114), 115]  # the 23 held-out Nguyen + Keijzer equations
 DEV = [6, 7, 12, 114]  # used for development in the first revision; used here only for smoke tests
-GROUPS = {"heldout": HELDOUT, "dev": DEV, "nguyen_heldout": [k for k in HELDOUT if k < 100],
+ALL = sorted(HELDOUT + DEV)  # the planned runs use all 27 (the method is not tuned on any of them)
+GROUPS = {"all": ALL, "nguyen": [k for k in ALL if k < 100], "keijzer": [k for k in ALL if k > 100],
+          "heldout": HELDOUT, "dev": DEV, "nguyen_heldout": [k for k in HELDOUT if k < 100],
           "keijzer_heldout": [k for k in HELDOUT if k > 100]}
 
 # "standard": each benchmark's own function set for every equation (Nguyen: Uy et al., 2011,

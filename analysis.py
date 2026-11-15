@@ -25,9 +25,9 @@ from scipy.stats import mannwhitneyu, wilcoxon
 ROOT = Path(__file__).resolve().parent
 RESULTS = ROOT / "results"
 SOLVED_R2 = 0.999
-# Random crossover with more generations, fixed in the plan from the dev-equation timing pilot:
-# x3 covers the method's extra evaluations, x6 its extra wall time
-EQUAL_COMPUTE = ("random_x3", "random_x6")
+# Random crossover with 3x the generations: about the full method's evaluations per run (2.2x random in
+# the dev-equation timing pilot, counting the selector's reward evaluations). Fixed in the plan.
+EQUAL_COMPUTE = ("random_x3",)
 
 # ============================================================================
 # Loading and per-equation scores
@@ -187,7 +187,7 @@ def analyse_main(path):
     describe(rows, arms)
     per_equation_tests(rows, "full", "random")
     kz = [r for r in rows if int(r["spec_id"]) > 100]
-    print_test("Descriptive: Keijzer's original test sets (14 equations)",
+    print_test(f"Descriptive: Keijzer's original test sets ({len({r['spec_id'] for r in kz})} equations)",
                paired(kz, "full", "random", median_r2("test_r2_orig"), "median R² on Keijzer's test set"))
     for k in (104, 106):  # the two Keijzer test sets that extrapolate
         a = [score(r, "test_r2_orig") for r in kz if r["arm"] == "full" and int(r["spec_id"]) == k]
