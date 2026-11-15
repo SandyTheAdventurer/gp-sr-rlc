@@ -25,7 +25,9 @@ from scipy.stats import mannwhitneyu, wilcoxon
 ROOT = Path(__file__).resolve().parent
 RESULTS = ROOT / "results"
 SOLVED_R2 = 0.999
-EQUAL_COMPUTE = "random_x3"  # fixed in the plan from the dev-equation timing pilot
+# Random crossover with more generations, fixed in the plan from the dev-equation timing pilot:
+# x3 covers the method's extra evaluations, x6 its extra wall time
+EQUAL_COMPUTE = ("random_x3", "random_x6")
 
 # ============================================================================
 # Loading and per-equation scores
@@ -163,7 +165,7 @@ def describe(rows, arms):
 def analyse_main(path):
     rows = load(path)
     arms = ["random", "full", "policy", "heuristic", "nocritic", "full_noconst", "random_noconst", "full_m01",
-            "random_m01", "ssc", "sizefair", EQUAL_COMPUTE]
+            "random_m01", "ssc", "sizefair", *EQUAL_COMPUTE]
     print_test("Primary test", paired(rows, "full", "random"))
     print_family("Secondary tests", [
         paired(rows, "full", "random", solved_fraction, "solved fraction"),
@@ -179,7 +181,7 @@ def analyse_main(path):
         paired(rows, "full", "sizefair"),
         paired(rows, "ssc", "random"),
         paired(rows, "sizefair", "random"),
-        paired(rows, "full", EQUAL_COMPUTE),
+        *[paired(rows, "full", arm) for arm in EQUAL_COMPUTE],
     ])
     print("\nDescriptive")
     describe(rows, arms)
@@ -281,7 +283,7 @@ def figures(path):
     # Convergence: median over runs of the best train R² against generation, evaluations and time
     curves = [json.loads(l) for l in open(Path(path).with_name(Path(path).stem + "_curves.jsonl"), encoding="utf-8")]
     fig, axes = plt.subplots(1, 3, figsize=(14, 4))
-    for arm in ("random", "full", "ssc", EQUAL_COMPUTE):
+    for arm in ("random", "full", "ssc", *EQUAL_COMPUTE):
         cs = [c["curve"] for c in curves if c["arm"] == arm and c["curve"]]
         if not cs:
             continue
