@@ -180,8 +180,23 @@ def snap_constants(model, target):
                            for f in model.atoms(sp.Float)})
 
 
-def is_recovered(model, target):
-    """Exact symbolic recovery: model - target simplifies to 0 once evolved constants are snapped."""
+def _timeout(*_):
+    raise TimeoutError
+
+
+def _alarm(seconds):
+    """Raise TimeoutError in this process after `seconds` (0 cancels). Needs SIGALRM (Linux, macOS);
+    elsewhere only the Checker's hard limits apply."""
+    if hasattr(signal, "SIGALRM"):
+        if seconds:
+            signal.signal(signal.SIGALRM, _timeout)
+        signal.alarm(seconds)
+
+
+def is_recovered(model, target, seconds=30):
+    """Exact symbolic recovery: model - target simplifies to 0 once evolved constants are snapped.
+    A check that fails or takes more than `seconds` counts as not recovered."""
+    _alarm(seconds)
     try:
         model = snap_constants(model, target)
         target = target.xreplace({x: sp.Symbol(x.name, real=True) for x in target.free_symbols})
@@ -190,6 +205,8 @@ def is_recovered(model, target):
         return sp.simplify(diff) == 0 or sp.simplify(sp.logcombine(sp.expand_log(diff, force=True), force=True)) == 0
     except Exception:
         return False
+    finally:
+        _alarm(0)
 
 
 def _zss_tree(expr):
@@ -205,12 +222,22 @@ def _zss_tree(expr):
     return node
 
 
-def tree_edit_distance(model, target):
+def tree_edit_distance(model, target, seconds=30):
     """(TED, NED): Zhang-Shasha tree edit distance between the model (constants snapped as for recovery)
     and the true equation, both simplified so they share a canonical form, and NED = min(1, TED / true
-    tree size) as in SRSD (Matsubara et al., 2024)."""
+    tree size) as in SRSD (Matsubara et al., 2024). An expression is left unsimplified if simplify
+    fails or takes more than `seconds`."""
     import zss
-    exprs = [sp.simplify(e) for e in (snap_constants(model, target), snap_constants(target, target))]
+    exprs = []
+    for e in (snap_constants(model, target), snap_constants(target, target)):
+        _alarm(seconds)
+        try:
+            e = sp.simplify(e)
+        except Exception:
+            pass
+        finally:
+            _alarm(0)
+        exprs.append(e)
     ted = int(zss.simple_distance(_zss_tree(exprs[0]), _zss_tree(exprs[1])))
     return ted, float(min(1.0, ted / sum(1 for _ in sp.preorder_traversal(exprs[1]))))
 
@@ -218,8 +245,8 @@ def tree_edit_distance(model, target):
 class Checker:
     """is_recovered and tree_edit_distance in a helper process, killed after a hard time limit.
 
-    SymPy can get stuck in one long C call (a huge integer power) that no in-process alarm can interrupt;
-    in the first revision 7 of 11,340 runs hung there. The helper starts once per worker and is reused. A
+    The checks stop themselves after 30 s, but SymPy can get stuck in one long C call (a huge integer
+    power) that no in-process alarm can interrupt; in the first revision 7 of 11,340 runs hung there. The helper starts once per worker and is reused. A
     killed recovery check counts as not recovered; a killed TED is NaN. The helper runs with
     PYTHONHASHSEED=0, because SymPy's results can depend on the order of hashed arguments.
     """
