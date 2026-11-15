@@ -4,7 +4,6 @@ fitness, selection, constant optimization and optional SymPy simplification.
 The operator tables, VAR_NAMES and DEVICE are rebound at the start of each run, so other
 modules read them as `gp.NAME` rather than importing the names.
 """
-import copy
 import multiprocessing as mp
 import operator
 import os
@@ -201,7 +200,12 @@ class Node:
         raise NotImplementedError
 
     def clone(self):
-        return copy.deepcopy(self)
+        raise NotImplementedError
+
+    def key(self):
+        """A hashable value that is equal for two trees exactly when they are the same expression,
+        constants compared bit for bit."""
+        raise NotImplementedError
 
     def size(self) -> int:
         raise NotImplementedError
@@ -222,6 +226,15 @@ class Node:
 class Const(Node):
     def __init__(self, value: float):
         self.value = float(value)
+
+    def clone(self):
+        new = Const.__new__(Const)
+        new.value = self.value
+        return new
+
+    def key(self):
+        # 0.0 == -0.0, so zeros are keyed by their text to keep the sign
+        return self.value if self.value else (str(self.value),)
 
     def evaluate(self, inputs):
         reference = next(iter(inputs.values()))
@@ -247,6 +260,14 @@ class Var(Node):
     def __init__(self, name: str = None):
         self.name = name or VAR_NAMES[0]
 
+    def clone(self):
+        new = Var.__new__(Var)
+        new.name = self.name
+        return new
+
+    def key(self):
+        return self.name
+
     def evaluate(self, inputs):
         return inputs[self.name]
 
@@ -270,6 +291,12 @@ class Unary(Node):
     def __init__(self, func_name: str, child: Node):
         self.func_name = func_name
         self.child = child
+
+    def clone(self):
+        return Unary(self.func_name, self.child.clone())
+
+    def key(self):
+        return (self.func_name, self.child.key())
 
     def evaluate(self, inputs):
         f = UNARY_FUNCS[self.func_name]
@@ -297,6 +324,12 @@ class Binary(Node):
         self.func_name = func_name
         self.left = left
         self.right = right
+
+    def clone(self):
+        return Binary(self.func_name, self.left.clone(), self.right.clone())
+
+    def key(self):
+        return (self.func_name, self.left.key(), self.right.key())
 
     def evaluate(self, inputs):
         f = BINARY_FUNCS[self.func_name]
@@ -498,41 +531,69 @@ def too_big(ind: Node, max_depth: int) -> bool:
 INVALID_SCORE = 1e18
 
 
-def fitness(ind: Node, inputs: Mapping[str, np.ndarray], y: np.ndarray,
-            complexity_coef=1e-3, inclusion_coef=1.0) -> float:
+# Scores of recently scored trees, so an identical tree (an elite, a duplicate, a parent or child the
+# selector scores again) is not evaluated twice. A score depends only on the tree and on the data, so
+# the cache belongs to one (inputs, y) pair, which must not be modified in place, and is dropped when
+# another pair arrives. It keeps the last one to two batches of SCORE_CACHE_BATCH distinct trees.
+SCORE_CACHE_BATCH = 1500
+_score_data = None
+_score_recent, _score_older = {}, {}
+
+
+def _score(ind: Node, inputs: Mapping[str, np.ndarray], y: np.ndarray,
+           complexity_coef, inclusion_coef) -> Tuple[float, Tuple[float, float]]:
+    """(fitness, Pareto objectives (error_with_inclusion, size)) of a tree, from the cache if it holds it."""
+    global _score_data, _score_recent, _score_older
+    if _score_data is None or _score_data[0] is not inputs or _score_data[1] is not y:
+        _score_data, _score_recent, _score_older = (inputs, y), {}, {}
+    key = (ind.key(), complexity_coef, inclusion_coef)
+    result = _score_recent.get(key)
+    if result is None:
+        result = _score_older.get(key)
+        if result is None:
+            result = _evaluate_score(ind, inputs, y, complexity_coef, inclusion_coef)
+        if len(_score_recent) >= SCORE_CACHE_BATCH:
+            _score_older, _score_recent = _score_recent, {}
+        _score_recent[key] = result
+    return result
+
+
+def _evaluate_score(ind: Node, inputs: Mapping[str, np.ndarray], y: np.ndarray,
+                    complexity_coef, inclusion_coef) -> Tuple[float, Tuple[float, float]]:
+    """Evaluate once; return (fitness, Pareto objectives (error_with_inclusion, size))."""
     try:
         y_pred = ind.evaluate(inputs)
-        if np.any(np.isinf(y_pred)) or np.any(np.isnan(y_pred)):
-            return INVALID_SCORE + ind.size()
+        if not np.all(np.isfinite(y_pred)):
+            return INVALID_SCORE + ind.size(), (INVALID_SCORE + ind.size(), float(ind.size()))
         mse = float(np.mean((y - y_pred)**2))
     except Exception:
-        return INVALID_SCORE + ind.size()
+        return INVALID_SCORE + ind.size(), (INVALID_SCORE + ind.size(), float(ind.size()))
     inclusion_penalty = 0.0
     if inclusion_coef:
         used_vars = gather_used_var_names(ind)
         missing_vars = set(inputs.keys()) - used_vars
         missing_vars |= detect_inert_variables(ind, inputs, y_pred, candidate_vars=used_vars)
         inclusion_penalty = inclusion_coef * len(missing_vars)
-    return mse + complexity_coef * ind.size() + inclusion_penalty
+    size = ind.size()
+    return mse + complexity_coef * size + inclusion_penalty, (mse + inclusion_penalty, float(size))
+
+
+def score_individual(ind: Node, inputs: Mapping[str, np.ndarray], y: np.ndarray,
+                     complexity_coef=1e-3, inclusion_coef=1.0) -> Tuple[float, Tuple[float, float]]:
+    """(fitness, Pareto objectives) of a tree from one evaluation (run_ga's population scoring)."""
+    return _score(ind, inputs, y, complexity_coef, inclusion_coef)
+
+
+def fitness(ind: Node, inputs: Mapping[str, np.ndarray], y: np.ndarray,
+            complexity_coef=1e-3, inclusion_coef=1.0) -> float:
+    """MSE + complexity_coef * size + inclusion_coef * (variables missing or without effect)."""
+    return _score(ind, inputs, y, complexity_coef, inclusion_coef)[0]
 
 
 def pareto_objectives(ind: Node, inputs: Mapping[str, np.ndarray], y: np.ndarray,
                       inclusion_coef=1.0) -> Tuple[float, float]:
     """Return (error_with_inclusion, complexity) objectives for Pareto sorting."""
-    try:
-        y_pred = ind.evaluate(inputs)
-        if np.any(np.isinf(y_pred)) or np.any(np.isnan(y_pred)):
-            return INVALID_SCORE + ind.size(), float(ind.size())
-        mse = float(np.mean((y - y_pred) ** 2))
-    except Exception:
-        return INVALID_SCORE + ind.size(), float(ind.size())
-    inclusion_penalty = 0.0
-    if inclusion_coef:
-        used_vars = gather_used_var_names(ind)
-        missing_vars = set(inputs.keys()) - used_vars
-        missing_vars |= detect_inert_variables(ind, inputs, y_pred, candidate_vars=used_vars)
-        inclusion_penalty = inclusion_coef * len(missing_vars)
-    return mse + inclusion_penalty, float(ind.size())
+    return _score(ind, inputs, y, 0.0, inclusion_coef)[1]
 
 
 def detect_inert_variables(
@@ -554,21 +615,37 @@ def detect_inert_variables(
         return inert
 
     perturbed = dict(inputs)
-    rolled_inputs = {name: np.roll(inputs[name], 1) for name in var_names}
 
     for name in var_names:
         original = inputs[name]
-        perturbed[name] = rolled_inputs[name]
+        perturbed[name] = _rolled(original)
         try:
             alt_pred = ind.evaluate(perturbed)
         except Exception:
             inert.add(name)
             perturbed[name] = original
             continue
-        if np.allclose(base_pred, alt_pred, atol=atol, rtol=rtol):
+        # np.allclose(base_pred, alt_pred, atol=atol, rtol=rtol), written out
+        with np.errstate(invalid='ignore'):
+            close = ((np.abs(base_pred - alt_pred) <= atol + rtol * np.abs(alt_pred))
+                     & np.isfinite(alt_pred) | (base_pred == alt_pred))
+        if bool(np.all(close)):
             inert.add(name)
         perturbed[name] = original
     return inert
+
+
+_rolled_cache = {}
+
+
+def _rolled(column: np.ndarray) -> np.ndarray:
+    """np.roll(column, 1), kept for the input columns in use (they must not be modified in place)."""
+    hit = _rolled_cache.get(id(column))
+    if hit is None or hit[0] is not column:
+        if len(_rolled_cache) >= 64:
+            _rolled_cache.clear()
+        hit = _rolled_cache[id(column)] = (column, np.roll(column, 1))
+    return hit[1]
 
 
 # ============================================================================
@@ -601,10 +678,6 @@ def tournament_pick_index(pop_size: int, score_key, k=3, timeout=10.0) -> int:
                 return random.randrange(pop_size)
 
 
-def _pareto_dominates(a: Tuple[float, ...], b: Tuple[float, ...]) -> bool:
-    return all(x <= y for x, y in zip(a, b)) and any(x < y for x, y in zip(a, b))
-
-
 def pareto_rank_and_crowding(objectives: List[Tuple[float, ...]]):
     """Compute Pareto rank and crowding distance (NSGA-II style)."""
     n = len(objectives)
@@ -613,18 +686,16 @@ def pareto_rank_and_crowding(objectives: List[Tuple[float, ...]]):
     num_obj = len(objectives[0]) if objectives[0] else 0
     if num_obj == 0:
         return [0] * n, [0.0] * n
-    domination_sets = [set() for _ in range(n)]
-    domination_counts = [0] * n
     fronts = []
 
-    for i in range(n):
-        for j in range(i + 1, n):
-            if _pareto_dominates(objectives[i], objectives[j]):
-                domination_sets[i].add(j)
-                domination_counts[j] += 1
-            elif _pareto_dominates(objectives[j], objectives[i]):
-                domination_sets[j].add(i)
-                domination_counts[i] += 1
+    # dominates[i, j]: i is no worse than j on every objective and better on at least one. Each set is
+    # filled in ascending index order, as a pairwise double loop would fill it (the order in which a
+    # set yields its members decides ties in the crowding sort below)
+    obj = np.asarray(objectives, dtype=float)
+    dominates = ((obj[:, None, :] <= obj[None, :, :]).all(axis=2)
+                 & (obj[:, None, :] < obj[None, :, :]).any(axis=2))
+    domination_sets = [set(np.flatnonzero(row).tolist()) for row in dominates]
+    domination_counts = dominates.sum(axis=0).tolist()
 
     current_front = [i for i in range(n) if domination_counts[i] == 0]
     rank = [0] * n

@@ -137,63 +137,68 @@ class SubtreeSelector(nn.Module):
                 return action_logits
 
 
-def extract_subtree_features(node: Node, parent: Node, depth_from_root: int,
-                             tree_size: int, tree_depth: int) -> torch.Tensor:
-    """Extract features for a subtree rooted at 'node'."""
-    features = []
-
-    # Node type features (one-hot-ish)
-    features.append(1.0 if isinstance(node, Const) else 0.0)
-    features.append(1.0 if isinstance(node, Var) else 0.0)
-    features.append(1.0 if isinstance(node, Unary) else 0.0)
-    features.append(1.0 if isinstance(node, Binary) else 0.0)
-
-    # Structural features
-    features.append(node.size() / max(tree_size, 1))  # Relative size
-    features.append(node.depth() / max(tree_depth, 1))  # Relative depth
-    features.append(depth_from_root / max(tree_depth, 1))  # Position in tree
-
-    # Parent features
-    features.append(1.0 if parent is None else 0.0)  # Is root
-    features.append(1.0 if isinstance(parent, Unary) else 0.0)
-    features.append(1.0 if isinstance(parent, Binary) else 0.0)
-
-    # Specific operator features
-    unary_one_hot = [0.0] * len(gp.ALL_UNARY)
-    if isinstance(node, Unary):
-        try:
-            unary_one_hot[gp.ALL_UNARY.index(node.func_name)] = 1.0
-        except ValueError:
-            pass
-    features.extend(unary_one_hot)
-
-    binary_one_hot = [0.0] * len(gp.ALL_BINARY)
-    if isinstance(node, Binary):
-        try:
-            binary_one_hot[gp.ALL_BINARY.index(node.func_name)] = 1.0
-        except ValueError:
-            pass
-    features.extend(binary_one_hot)
-
-    return torch.tensor(features, dtype=torch.float32, device=gp.DEVICE)
-
-
 def collect_nodes_with_features(node: Node, parent=None, attr_name=None, depth=0):
-    """Collect nodes with parent info and features."""
-    tree_size = node.size()
-    tree_depth = node.depth()
+    """The tree's nodes in pre-order as (node, parent, attribute name), and their feature matrix
+    (one row per node): node type, relative size, depth and position, parent type, operator identity."""
+    nodes, info = [], []
 
     def recurse(n, p, attr, d):
-        features = extract_subtree_features(n, p, d, tree_size, tree_depth)
-        res = [(n, p, attr, features)]
+        """Append n's subtree; return its (size, depth)."""
+        idx = len(nodes)
+        nodes.append((n, p, attr))
+        info.append(None)
         if isinstance(n, Unary):
-            res += recurse(n.child, n, 'child', d + 1)
+            size, dep = recurse(n.child, n, 'child', d + 1)
+            size, dep = 1 + size, 1 + dep
         elif isinstance(n, Binary):
-            res += recurse(n.left, n, 'left', d + 1)
-            res += recurse(n.right, n, 'right', d + 1)
-        return res
+            left_size, left_dep = recurse(n.left, n, 'left', d + 1)
+            right_size, right_dep = recurse(n.right, n, 'right', d + 1)
+            size, dep = 1 + left_size + right_size, 1 + max(left_dep, right_dep)
+        else:
+            size, dep = 1, 0
+        info[idx] = (d, size, dep)
+        return size, dep
 
-    return recurse(node, parent, attr_name, depth)
+    tree_size, tree_depth = recurse(node, parent, attr_name, depth)
+    rows = []
+    for (n, p, _), (depth_from_root, size, dep) in zip(nodes, info):
+        features = []
+
+        # Node type features (one-hot-ish)
+        features.append(1.0 if isinstance(n, Const) else 0.0)
+        features.append(1.0 if isinstance(n, Var) else 0.0)
+        features.append(1.0 if isinstance(n, Unary) else 0.0)
+        features.append(1.0 if isinstance(n, Binary) else 0.0)
+
+        # Structural features
+        features.append(size / max(tree_size, 1))  # Relative size
+        features.append(dep / max(tree_depth, 1))  # Relative depth
+        features.append(depth_from_root / max(tree_depth, 1))  # Position in tree
+
+        # Parent features
+        features.append(1.0 if p is None else 0.0)  # Is root
+        features.append(1.0 if isinstance(p, Unary) else 0.0)
+        features.append(1.0 if isinstance(p, Binary) else 0.0)
+
+        # Specific operator features
+        unary_one_hot = [0.0] * len(gp.ALL_UNARY)
+        if isinstance(n, Unary):
+            try:
+                unary_one_hot[gp.ALL_UNARY.index(n.func_name)] = 1.0
+            except ValueError:
+                pass
+        features.extend(unary_one_hot)
+
+        binary_one_hot = [0.0] * len(gp.ALL_BINARY)
+        if isinstance(n, Binary):
+            try:
+                binary_one_hot[gp.ALL_BINARY.index(n.func_name)] = 1.0
+            except ValueError:
+                pass
+        features.extend(binary_one_hot)
+        rows.append(features)
+
+    return nodes, torch.tensor(rows, dtype=torch.float32, device=gp.DEVICE)
 
 
 # ============================================================================
@@ -213,6 +218,43 @@ semantic_inputs = None  # training inputs, on which SSC measures subtree semanti
 SSC_BOUNDS, SSC_TRIALS = (1e-4, 0.4), 12  # Uy et al. (2011): LBSS, UBSS and Max_Trial
 
 
+# Tournaments pick the same parents many times in a generation. A tree's feature matrix depends only
+# on the tree, and its node logits only on the tree and the selector's weights, so both are kept per
+# tree: features until the operator set changes, logits until the weights may change.
+NODE_CACHE_LIMIT = 4000
+_feature_cache, _logit_cache = {}, {}
+_logits_repeatable = False  # False when the selector's forward pass draws random numbers (dropout)
+
+
+def _clear_node_caches(features=True) -> None:
+    _logit_cache.clear()
+    if features:
+        _feature_cache.clear()
+
+
+def _nodes_and_features(tree: Node):
+    """(nodes, features, key) of a tree, as collect_nodes_with_features gives them."""
+    key = tree.key()
+    features = _feature_cache.get(key)
+    if features is None:
+        nodes, features = collect_nodes_with_features(tree)
+        if len(_feature_cache) >= NODE_CACHE_LIMIT:
+            _clear_node_caches()
+        _feature_cache[key] = features
+        return nodes, features, key
+    return collect_nodes_with_parents(tree), features, key
+
+
+def _node_logits(key, features):
+    """The selector's node logits for a tree."""
+    if not _logits_repeatable:
+        return subtree_selector(features, return_value=True)[0]
+    logits = _logit_cache.get(key)
+    if logits is None:
+        logits = _logit_cache[key] = subtree_selector(features, return_value=True)[0]
+    return logits
+
+
 def set_operator(name, inputs=None) -> None:
     """Choose the crossover operator for the run (see OPERATORS)."""
     global operator_name, semantic_inputs
@@ -226,6 +268,7 @@ def set_selector_device(new_device: torch.device) -> None:
     if gp.DEVICE.type == new_device.type:
         return
     gp.DEVICE = new_device
+    _clear_node_caches()
     if subtree_selector is not None:
         subtree_selector.to(gp.DEVICE)
     if selector_optimizer is not None:
@@ -241,12 +284,15 @@ def clear_history() -> None:
     # Reset crossover history whenever we start a new GA run so feature sizes stay consistent
     crossover_history = []
     selector_feature_dim = gp.get_selector_feature_dim()
+    _clear_node_caches()
 
 
 def reset_selector(use_learned_crossover, selector_lr, mlp_hidden_dim, use_transformer, transformer_heads,
                    transformer_layers, mlp_layers, mlp_activation, mlp_dropout, use_critic, verbose):
     """Create a fresh selector and optimizer, or none for random crossover."""
-    global subtree_selector, selector_optimizer
+    global subtree_selector, selector_optimizer, _logits_repeatable
+    _clear_node_caches()
+    _logits_repeatable = bool(use_learned_crossover) and not use_transformer and not mlp_dropout > 0
     if use_learned_crossover:
         subtree_selector = SubtreeSelector(
             feature_dim=gp.get_selector_feature_dim(),
@@ -359,15 +405,13 @@ def learned_subtree_crossover(
         crossover_history.clear()
 
     if use_selector:
-        a_nodes = collect_nodes_with_features(a_clone)
-        b_nodes = collect_nodes_with_features(b_clone)
+        a_nodes, a_features, a_key = _nodes_and_features(a_clone)
+        b_nodes, b_features, b_key = _nodes_and_features(b_clone)
         # Use neural network to select a joint subtree pair.
         with torch.no_grad():
-            a_features = torch.stack([feat for _, _, _, feat in a_nodes])
-            b_features = torch.stack([feat for _, _, _, feat in b_nodes])
             try:
-                a_logits, _ = subtree_selector(a_features, return_value=True)
-                b_logits, _ = subtree_selector(b_features, return_value=True)
+                a_logits = _node_logits(a_key, a_features)
+                b_logits = _node_logits(b_key, b_features)
 
                 pair_logits = a_logits.unsqueeze(1) + b_logits.unsqueeze(0)
                 a_idx, b_idx = _sample_pair(pair_logits, a_features, b_features, heuristic_bias_scale, temperature)
@@ -378,19 +422,17 @@ def learned_subtree_crossover(
                         torch.cuda.empty_cache()
                 a_idx = random.randint(0, len(a_nodes) - 1)
                 b_idx = random.randint(0, len(b_nodes) - 1)
-        node_a, parent_a, attr_a, _ = a_nodes[a_idx]
-        node_b, parent_b, attr_b, _ = b_nodes[b_idx]
+        node_a, parent_a, attr_a = a_nodes[a_idx]
+        node_b, parent_b, attr_b = b_nodes[b_idx]
     elif use_learned and operator_name == "heuristic":
         # The structural bias alone, no network: the method's pair distribution with zero node logits
-        a_nodes = collect_nodes_with_features(a_clone)
-        b_nodes = collect_nodes_with_features(b_clone)
+        a_nodes, a_feats, _ = _nodes_and_features(a_clone)
+        b_nodes, b_feats, _ = _nodes_and_features(b_clone)
         with torch.no_grad():
-            a_feats = torch.stack([feat for _, _, _, feat in a_nodes])
-            b_feats = torch.stack([feat for _, _, _, feat in b_nodes])
             zeros = torch.zeros(len(a_nodes), len(b_nodes), dtype=a_feats.dtype, device=a_feats.device)
             a_idx, b_idx = _sample_pair(zeros, a_feats, b_feats, heuristic_bias_scale, temperature)
-        node_a, parent_a, attr_a, _ = a_nodes[a_idx]
-        node_b, parent_b, attr_b, _ = b_nodes[b_idx]
+        node_a, parent_a, attr_a = a_nodes[a_idx]
+        node_b, parent_b, attr_b = b_nodes[b_idx]
     elif use_learned and operator_name in ("ssc", "sizefair"):
         pick = _ssc_pick if operator_name == "ssc" else _size_fair_pick
         (node_a, parent_a, attr_a), (node_b, parent_b, attr_b) = pick(
@@ -451,6 +493,7 @@ def update_selector(
     """Update the selector NN. Returns mean raw reward (positive = selector helped), or None."""
     global subtree_selector, selector_optimizer, crossover_history
 
+    _clear_node_caches(features=False)  # the weights may change below
     if not crossover_history or subtree_selector is None:
         return None
 

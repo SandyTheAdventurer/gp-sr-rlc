@@ -140,13 +140,10 @@ def run_ga(
 
     gen_iterator = tqdm(range(gens), desc="GA generations", unit="gen")
     for gen in gen_iterator:
-        scores = [gp.fitness(ind, inputs, y, complexity_coef, inclusion_coef) for ind in pop]
+        scored = [gp.score_individual(ind, inputs, y, complexity_coef, inclusion_coef) for ind in pop]
+        scores = [fit for fit, _ in scored]
         if use_pareto:
-            pareto_objectives_list = [
-                gp.pareto_objectives(ind, inputs, y, inclusion_coef)
-                for ind in pop
-            ]
-            pareto_ranks, pareto_crowding = gp.pareto_rank_and_crowding(pareto_objectives_list)
+            pareto_ranks, pareto_crowding = gp.pareto_rank_and_crowding([objs for _, objs in scored])
         else:
             pareto_ranks, pareto_crowding = None, None
 

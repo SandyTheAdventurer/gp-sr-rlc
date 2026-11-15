@@ -324,15 +324,14 @@ def run_sr(task):
     curve, counts = [], {"fitness": 0, "selector": 0}
 
     # Count fitness evaluations (each scores one tree on the full training set) without changing them:
-    # population scoring and Pareto objectives in run_ga, and the selector's reward computation
+    # population scoring in run_ga, and the selector's reward computation
     def counted(f, key):
         def wrapper(*a, **k):
             counts[key] += 1
             return f(*a, **k)
         return wrapper
-    gp_fitness, gp_pareto, lx_fitness = gp.fitness, gp.pareto_objectives, lx.fitness
-    gp.fitness, gp.pareto_objectives = counted(gp_fitness, "fitness"), counted(gp_pareto, "fitness")
-    lx.fitness = counted(lx_fitness, "selector")
+    gp_score, lx_fitness = gp.score_individual, lx.fitness
+    gp.score_individual, lx.fitness = counted(gp_score, "fitness"), counted(lx_fitness, "selector")
     t0 = time.time()
     try:
         n_train = benchmarks.SAMPLE_SIZE
@@ -378,7 +377,7 @@ def run_sr(task):
     except Exception as exc:
         row.update(status="error", error=repr(exc), elapsed_sec=round(time.time() - t0, 2))
     finally:
-        gp.fitness, gp.pareto_objectives, lx.fitness = gp_fitness, gp_pareto, lx_fitness
+        gp.score_individual, lx.fitness = gp_score, lx_fitness
     return row, curve
 
 # ============================================================================
