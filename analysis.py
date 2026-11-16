@@ -211,7 +211,7 @@ def analyse_noise(paths):
 
 def analyse_protocol(path):
     rows = load(path)
-    print_family("Original Nguyen protocol (20 points, original ranges; 9 equations)", [
+    print_family(f"Original Nguyen protocol (20 points, original ranges; {len({r['spec_id'] for r in rows})} equations)", [
         paired(rows, "full", "random"),
         paired(rows, "full", "random", recovery_rate, "recovery rate"),
         paired(rows, "full", "ssc"),
