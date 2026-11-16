@@ -314,11 +314,14 @@ def figures(path):
 
 def diag_runs(directory):
     """{(arm, spec_id, seed): per-run means of the per-generation diagnostics}."""
-    out = {}
+    out, empty = {}, []
     for f in sorted(Path(directory).glob("*.json")):
         arm, spec_id, seed = f.stem.rsplit("_", 2)
         d = json.load(open(f, encoding="utf-8"))
         gens = sorted(d, key=int)
+        if not gens:  # stopped (solved) before the warmup ended: the policy never acted
+            empty.append((arm, int(spec_id), int(seed)))
+            continue
         g = [d[k] for k in gens]
         hr = [x["headroom"] for x in g if x["headroom"]]
         last = int(gens[-1])
@@ -335,6 +338,9 @@ def diag_runs(directory):
             "p_best16": float(np.mean([1 - (1 - h["frac_better"]) ** 16 for h in hr])),
             "r_gain": float(np.mean([h["r_max"] > 0 for h in hr])),
         }
+    if empty:
+        print(f"{len(empty)} runs stopped before the warmup ended and have no diagnostics: "
+              + ", ".join(f"{a} eq={k} seed={sd}" for a, k, sd in empty))
     return out
 
 

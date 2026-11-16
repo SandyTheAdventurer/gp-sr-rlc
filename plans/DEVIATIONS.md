@@ -23,3 +23,9 @@ value. All 18,990 runs end with status ok.
 ## 2. A stale label in the protocol analysis (2026-11-16)
 `analysis.py protocol` printed "9 equations" in its title, left over from the held-out set. The title now
 counts the equations in the data (12). Nothing else in the analysis changed.
+
+## 3. Run 5: runs that stopped before the warmup (2026-11-16)
+52 of the 540 `_diag` runs found an exact solution before generation 30, when the policy starts acting, so
+their diagnostic files are empty: every seed of K7 and K8 in both arms, and 6 other runs per arm. The `diag`
+analysis crashed on the first empty file. It now skips these runs and lists them. The diagnostic tests
+therefore cover 25 equations (K7 and K8 have no diagnostics). The tests on test R² are unaffected.
