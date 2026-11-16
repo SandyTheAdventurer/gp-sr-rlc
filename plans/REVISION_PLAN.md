@@ -135,6 +135,60 @@ python analysis.py circuits
 log10 error. **Secondary, one Holm family:** learned vs uniform, swap vs uniform, learned vs swap on solved
 fraction. Resistor counts and evaluations (distinct networks scored) are reported.
 
+## Run 5: why the learned crossover matches random (added after Runs 1-4)
+**Status: approved by the author on 2026-11-16.** Written on 2026-11-16 after Runs 1-4 were analysed. In the main
+comparison the method was indistinguishable from random crossover. This run asks why. It is diagnostic: it
+does not change the method or the results of Runs 1-4. Once approved it is committed and tagged
+`plan-frozen-run5`. Before writing it, only 4 smoke runs on the dev equations (N6, N7, N12, K14, seed 0)
+were looked at, and only for validity; the masked output showed that those 4 runs fell under H1's
+threshold.
+
+**Hypotheses**
+- **H1 (author's): the policy's pair distribution stays near uniform (maximum entropy), so the method
+  behaves like random crossover.** Measured on the distribution actually sampled from (network logits
+  plus heuristic, temperature, clamp). Supported if the median over runs of the run's mean
+  KL(p || uniform) is below 0.05 nats (an average pair probability within about 5% of uniform).
+- **H2: the entropy bonus (weight 0.08) holds the policy at uniform.** Tested with the full method without
+  the entropy bonus (`noent_diag`, entropy weight 0). Supported if its KL is higher than full's (test
+  1) and its median KL is at least 0.05 nats.
+- **H3: the choice of crossover point matters to the run's result.** Tested with two operators that are
+  diagnostics, not methods: `best16` and `worst16` try 16 uniform point pairs per crossover and keep the
+  pair whose better child has the best (worst) fitness, the quantity the selector's reward measures.
+  Supported if best16 beats random (test 3) or worst16 loses to random (test 4). If best16 *loses* to
+  random, greedy point choice hurts, which is evidence for the author's suggestion that crossover
+  benefits from being random.
+- **H4: the policy learned to prefer better pairs.** Once per generation, every point pair of one of the
+  policy's crossovers is scored (or 256 uniform pairs plus the drawn one when there are more). Lift =
+  the fraction of pairs whose better child beats the better parent, weighted by p, minus the same
+  fraction unweighted. Supported if lift > 0 (test 2).
+- **H5: better children do not make better runs** (selection, elitism, mutation 0.5 and constant
+  optimization wash out the crossover's effect). Supported if the best of 16 uniform pairs usually
+  produces a child better than both parents (median chance at least 0.5, from the scored pairs) and H3 is
+  not supported.
+
+**Arms**
+| Arm | What it is | Seeds |
+|---|---|---|
+| full_diag | the full method with the logging; must reproduce Run 1's `full` run for run | 0-9 |
+| noent_diag | full without the entropy bonus, with the logging | 0-9 |
+| best16, worst16 | random crossover replaced by the best or worst of 16 point pairs, from generation 1 like ssc | 0-29, paired with Run 1's random |
+
+The logging draws no random numbers the run uses and does not count its evaluations. On 4 full-length dev
+runs, full_diag and the random, full and ssc arms matched Run 1's runs exactly.
+```
+python experiments.py sr --equations all --arms full_diag,noent_diag --seeds 10 --jobs 10 --tag diag
+python experiments.py sr --equations all --arms best16,worst16 --seeds 30 --jobs 10 --tag oracle
+python analysis.py diag
+```
+2,160 runs, about 3 hours. **One Holm family**, each a two-sided Wilcoxon signed-rank test over the 27
+equations of per-equation medians: (1) noent_diag vs full_diag on KL; (2) full_diag lift vs 0;
+(3) best16 vs random and (4) worst16 vs random on test R²; (5) noent_diag vs full_diag on test R².
+**Descriptive:** KL, normalized entropy, N max p, N p(drawn), KL early vs late, KL of the network alone and
+of the heuristic alone; the fraction of pairs that improve, the chance that the best of 16 does, the drawn
+pair's reward percentile and the Spearman correlation of log p with reward; and the usual per-arm table.
+best16 and worst16 spend 16 times the crossover evaluations; they bound what point choice can do and are
+not compared with the method on cost.
+
 ## Not in this plan
 - **PySR context table (R4.1, R5.1).** It needs a separate PySR/Julia environment and its own scripts; it
   will get its own section here, approved before it runs. It is context only, not a test.
