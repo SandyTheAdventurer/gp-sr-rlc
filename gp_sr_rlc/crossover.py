@@ -212,9 +212,11 @@ selector_feature_dim = None
 
 # Non-learned informed operators, for comparison (run_ga's crossover_operator): None for the default
 # (random, or the learned selector), "heuristic", "ssc" or "sizefair"
-OPERATORS = (None, "heuristic", "ssc", "sizefair")
+OPERATORS = (None, "heuristic", "ssc", "sizefair", "best", "worst")
 operator_name = None
 semantic_inputs = None  # training inputs, on which SSC measures subtree semantics
+oracle_data = None  # (inputs, y, complexity_coef, inclusion_coef) for the best/worst-of-k diagnostics
+ORACLE_K = 16  # point pairs the best/worst-of-k diagnostics try per crossover
 SSC_BOUNDS, SSC_TRIALS = (1e-4, 0.4), 12  # Uy et al. (2011): LBSS, UBSS and Max_Trial
 
 
@@ -255,12 +257,13 @@ def _node_logits(key, features):
     return logits
 
 
-def set_operator(name, inputs=None) -> None:
+def set_operator(name, inputs=None, y=None, complexity_coef=None, inclusion_coef=None) -> None:
     """Choose the crossover operator for the run (see OPERATORS)."""
-    global operator_name, semantic_inputs
+    global operator_name, semantic_inputs, oracle_data
     if name not in OPERATORS:
         raise ValueError(f"crossover_operator must be one of {OPERATORS}, got {name!r}")
     operator_name, semantic_inputs = name, inputs
+    oracle_data = (inputs, y, complexity_coef, inclusion_coef)
 
 
 def set_selector_device(new_device: torch.device) -> None:
@@ -381,6 +384,41 @@ def _size_fair_pick(a_nodes, b_nodes):
     return pa, random.choice([n for n in b_nodes if n[0].size() <= limit])
 
 
+def swap_subtrees(a: Node, b: Node, i: int, j: int) -> Tuple[Node, Node]:
+    """The two children of swapping the subtree at node i of a (preorder, as collect_nodes_with_parents
+    lists them) with the subtree at node j of b. The parents are not changed."""
+    a_clone, b_clone = a.clone(), b.clone()
+    node_a, parent_a, attr_a = collect_nodes_with_parents(a_clone)[i]
+    node_b, parent_b, attr_b = collect_nodes_with_parents(b_clone)[j]
+    if parent_a is None:
+        new_a = node_b.clone()
+    else:
+        new_a = a_clone
+        replace_child(parent_a, attr_a, node_b.clone())
+    if parent_b is None:
+        new_b = node_a.clone()
+    else:
+        new_b = b_clone
+        replace_child(parent_b, attr_b, node_a.clone())
+    return new_a, new_b
+
+
+def _oracle_pick(a: Node, b: Node, n_a: int, n_b: int):
+    """Diagnostic operators, not crossover methods: try ORACLE_K uniform point pairs and keep the pair
+    whose better child has the best ("best") or the worst ("worst") fitness, the quantity the selector's
+    reward measures. They spend 2 * ORACLE_K fitness evaluations per crossover."""
+    inputs, y, complexity_coef, inclusion_coef = oracle_data
+    keep = None
+    for _ in range(ORACLE_K):
+        i, j = random.randrange(n_a), random.randrange(n_b)
+        c1, c2 = swap_subtrees(a, b, i, j)
+        f = min(fitness(c1, inputs, y, complexity_coef, inclusion_coef),
+                fitness(c2, inputs, y, complexity_coef, inclusion_coef))
+        if keep is None or (f < keep[0] if operator_name == "best" else f > keep[0]):
+            keep = (f, c1, c2)
+    return keep[1], keep[2]
+
+
 def learned_subtree_crossover(
     a: Node,
     b: Node,
@@ -433,6 +471,10 @@ def learned_subtree_crossover(
             a_idx, b_idx = _sample_pair(zeros, a_feats, b_feats, heuristic_bias_scale, temperature)
         node_a, parent_a, attr_a = a_nodes[a_idx]
         node_b, parent_b, attr_b = b_nodes[b_idx]
+    elif use_learned and operator_name in ("best", "worst"):
+        new_a, new_b = _oracle_pick(a, b, len(collect_nodes_with_parents(a_clone)),
+                                    len(collect_nodes_with_parents(b_clone)))
+        return new_a, new_b, None
     elif use_learned and operator_name in ("ssc", "sizefair"):
         pick = _ssc_pick if operator_name == "ssc" else _size_fair_pick
         (node_a, parent_a, attr_a), (node_b, parent_b, attr_b) = pick(

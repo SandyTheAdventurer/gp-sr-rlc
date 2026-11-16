@@ -9,6 +9,9 @@ Usage:
     python analysis.py protocol  [results/nguyen_orig.csv]
     python analysis.py circuits  [results/circuits.csv]
     python analysis.py figures   [results/main.csv]
+    python analysis.py diag      (results/diag.csv, results/oracle.csv, results/main.csv, results/diag/diag/)
+
+`diag` (Run 5) was written after Runs 1-4 had been analysed, and before any Run 5 run.
 """
 from __future__ import annotations
 
@@ -304,6 +307,112 @@ def figures(path):
     print(f"wrote {out / 'boxplots.pdf'} and {out / 'convergence.pdf'}")
 
 
+# ============================================================================
+# Run 5: why the learned crossover matches random
+# ============================================================================
+
+
+def diag_runs(directory):
+    """{(arm, spec_id, seed): per-run means of the per-generation diagnostics}."""
+    out = {}
+    for f in sorted(Path(directory).glob("*.json")):
+        arm, spec_id, seed = f.stem.rsplit("_", 2)
+        d = json.load(open(f, encoding="utf-8"))
+        gens = sorted(d, key=int)
+        g = [d[k] for k in gens]
+        hr = [x["headroom"] for x in g if x["headroom"]]
+        last = int(gens[-1])
+        m = lambda key, sel=g: float(np.mean([x[key] for x in sel]))
+        out[(arm, int(spec_id), int(seed))] = {
+            "kl": m("kl"), "hn": m("hn"), "max_ratio": m("max_ratio"), "drawn_ratio": m("drawn_ratio"),
+            "kl_net": m("kl_net"), "kl_heur": m("kl_heur"), "n": m("n"),
+            "kl_early": m("kl", [x for k, x in zip(gens, g) if int(k) < 60]),
+            "kl_late": m("kl", [x for k, x in zip(gens, g) if int(k) > last - 30]),
+            "lift": float(np.mean([h["frac_better_p"] - h["frac_better"] for h in hr])),
+            "drawn_pct": float(np.mean([h["drawn_pct"] for h in hr])),
+            "rho": float(np.nanmedian([h["rho"] for h in hr])) if any(np.isfinite(h["rho"]) for h in hr) else float("nan"),
+            "frac_better": float(np.mean([h["frac_better"] for h in hr])),
+            "p_best16": float(np.mean([1 - (1 - h["frac_better"]) ** 16 for h in hr])),
+            "r_gain": float(np.mean([h["r_max"] > 0 for h in hr])),
+        }
+    return out
+
+
+def diag_per_equation(runs, arm, key):
+    by = defaultdict(list)
+    for (a, k, _), v in runs.items():
+        if a == arm and np.isfinite(v[key]):
+            by[k].append(v[key])
+    return {k: float(np.median(v)) for k, v in by.items()}
+
+
+def diag_paired(runs, a, b, key):
+    va, vb = diag_per_equation(runs, a, key), diag_per_equation(runs, b, key)
+    d = np.array([va[k] - vb[k] for k in sorted(set(va) & set(vb))])
+    w, l, t = int((d > 0).sum()), int((d < 0).sum()), int((d == 0).sum())
+    p = float(wilcoxon(d, zero_method="wilcox").pvalue) if (d != 0).any() else 1.0
+    return f"{a} vs {b} ({key})", w, l, t, p
+
+
+def diag_one_sample(runs, arm, key):
+    d = np.array(list(diag_per_equation(runs, arm, key).values()))
+    w, l, t = int((d > 0).sum()), int((d < 0).sum()), int((d == 0).sum())
+    p = float(wilcoxon(d, zero_method="wilcox").pvalue) if (d != 0).any() else 1.0
+    return f"{arm}: {key} vs 0", w, l, t, p
+
+
+def analyse_diag(diag_csv, oracle_csv, main_csv, diag_dir):
+    rows_diag, rows_oracle, rows_main = load(diag_csv), load(oracle_csv), load(main_csv)
+    runs = diag_runs(diag_dir)
+
+    # The logging must not have changed the runs: full_diag reproduces main's full run for run
+    main_full = {(r["spec_id"], r["seed"]): r for r in rows_main if r["arm"] == "full"}
+    fd = [r for r in rows_diag if r["arm"] == "full_diag"]
+    same = sum(main_full[(r["spec_id"], r["seed"])]["best_expr"] == r["best_expr"] for r in fd)
+    print(f"Check: {same} of {len(fd)} full_diag runs reproduce the main run's full arm exactly")
+
+    print("\nThe policy's pair distribution (per run: mean over generations after the warmup; "
+          "table: median [10th, 90th percentile] over runs)")
+    keys = [("kl", "KL(p || uniform), nats"), ("kl_early", "  first 30 generations"), ("kl_late", "  last 30 generations"),
+            ("hn", "H(p) / log N"), ("max_ratio", "N * max p"), ("drawn_ratio", "N * p(drawn pair)"),
+            ("kl_net", "KL, network alone"), ("kl_heur", "KL, heuristic alone"), ("n", "pairs N")]
+    print(f"  {'':28s} {'full_diag':>26s} {'noent_diag':>26s}")
+    for key, label in keys:
+        cells = []
+        for arm in ("full_diag", "noent_diag"):
+            v = [x[key] for (a, _, _), x in runs.items() if a == arm]
+            cells.append(f"{np.median(v):9.4f} [{np.percentile(v, 10):6.3f}, {np.percentile(v, 90):6.3f}]" if v else "-")
+        print(f"  {label:28s} {cells[0]:>26s} {cells[1]:>26s}")
+    kl = np.median([x["kl"] for (a, _, _), x in runs.items() if a == "full_diag"])
+    kl_ne = np.median([x["kl"] for (a, _, _), x in runs.items() if a == "noent_diag"])
+    print(f"  H1 (near-uniform: median run KL < 0.05 nats): {'supported' if kl < 0.05 else 'not supported'} "
+          f"(median {kl:.4f})")
+
+    print("\nHow much the point choice can matter (once per generation, every point pair scored; "
+          "median [10th, 90th percentile] over runs)")
+    for key, label in (("frac_better", "fraction of pairs whose better child beats the better parent"),
+                       ("p_best16", "chance the best of 16 uniform pairs does"),
+                       ("r_gain", "chance at least one pair does"),
+                       ("lift", "policy minus uniform, fraction beating the better parent"),
+                       ("drawn_pct", "drawn pair's reward percentile (0.5 = uniform)"),
+                       ("rho", "Spearman(log p, reward)")):
+        for arm in ("full_diag", "noent_diag"):
+            v = [x[key] for (a, _, _), x in runs.items() if a == arm and np.isfinite(x[key])]
+            if v:
+                print(f"  {label:62s} {arm:10s} {np.median(v):8.4f} [{np.percentile(v, 10):7.4f}, {np.percentile(v, 90):7.4f}]")
+
+    rows = rows_main + rows_oracle
+    print_family("Run 5 tests", [
+        diag_paired(runs, "noent_diag", "full_diag", "kl"),
+        diag_one_sample(runs, "full_diag", "lift"),
+        paired(rows, "best16", "random"),
+        paired(rows, "worst16", "random"),
+        paired(rows_diag, "noent_diag", "full_diag"),
+    ])
+    print("\nDescriptive")
+    describe(rows_main + rows_oracle + rows_diag, ["random", "full", "best16", "worst16", "full_diag", "noent_diag"])
+
+
 def main():
     cmd, args = sys.argv[1], sys.argv[2:]
     if cmd == "main":
@@ -314,6 +423,8 @@ def main():
         analyse_protocol(args[0] if args else RESULTS / "nguyen_orig.csv")
     elif cmd == "circuits":
         analyse_circuits(args[0] if args else RESULTS / "circuits.csv")
+    elif cmd == "diag":
+        analyse_diag(RESULTS / "diag.csv", RESULTS / "oracle.csv", RESULTS / "main.csv", RESULTS / "diag" / "diag")
     elif cmd == "figures":
         figures(args[0] if args else RESULTS / "main.csv")
     else:

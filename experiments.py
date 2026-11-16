@@ -69,6 +69,17 @@ ARMS = {
     "ssc": {"crossover_operator": "ssc", "selector_warmup_gens": 1},
     "sizefair": {"crossover_operator": "sizefair", "selector_warmup_gens": 1},
 }
+# Diagnostics (plans/REVISION_PLAN.md, Run 5). "_diag" arms run the named configuration and also log the
+# policy's pair distribution and the reward of every point pair once per generation (see Diagnostics);
+# the logging draws no random numbers the run uses, so a run's results are unchanged. best16 and worst16
+# keep the best or worst of 16 uniform point pairs by child fitness; they test whether the choice of
+# crossover point can matter at all, and are not crossover methods.
+ARMS.update({
+    "full_diag": FULL,
+    "noent_diag": {"entropy_weight": 0.0},
+    "best16": {"crossover_operator": "best", "selector_warmup_gens": 1},
+    "worst16": {"crossover_operator": "worst", "selector_warmup_gens": 1},
+})
 # Equal compute (R5.5): random crossover with K times the generations. K is fixed in the plan.
 for _k in (2, 3, 4, 5, 6, 8):
     ARMS[f"random_x{_k}"] = {**RANDOM, "gens": 200 * _k}
@@ -337,6 +348,104 @@ def limit_memory(nbytes):
         pass
 
 # ============================================================================
+# Diagnostics: what the policy's pair distribution looks like, and how much the point choice matters
+# ============================================================================
+
+HEADROOM_PAIRS = 256  # point pairs scored per generation for the headroom record (all of them if fewer)
+
+
+class Diagnostics:
+    """Wraps learned_subtree_crossover. For every crossover the policy makes it records, per generation:
+    - the pair distribution p (the one sampled from: policy logits plus heuristic, temperature, clamp):
+      normalized entropy H(p)/log N, KL(p || uniform) = log N - H(p) in nats, N * max p, and N * p of the
+      pair actually drawn; and the same entropy and KL for the network alone and the heuristic alone;
+    - for the first such crossover of the generation, the reward (best parent's fitness minus the better
+      child's, as in update_selector) of every point pair, or of HEADROOM_PAIRS uniform pairs plus the
+      drawn one when there are more: the fraction that beat the better parent, that fraction under p,
+      the drawn pair's reward percentile, and the Spearman correlation between log p and reward.
+    Pairs for the headroom record are drawn from their own numpy generator, and fitness is called
+    without the evaluation counter, so the run itself is unchanged."""
+
+    def __init__(self, lx, gp, fitness, complexity_coef, inclusion_coef, seed):
+        self.lx, self.gp, self.fitness = lx, gp, fitness
+        self.coefs = (complexity_coef, inclusion_coef)
+        self.rng = np.random.default_rng(seed)
+        self.gens = {}
+        self.orig = lx.learned_subtree_crossover
+
+    def __enter__(self):
+        def wrapper(*args, **kw):
+            out = self.orig(*args, **kw)
+            if out[2] is not None:
+                self.record(self.lx.crossover_history[out[2]], kw.get("temperature", 0.5),
+                            kw.get("heuristic_bias_scale", 1.0), kw.get("record_gen"))
+            return out
+        self.lx.learned_subtree_crossover = wrapper
+        return self
+
+    def __exit__(self, *exc):
+        self.lx.learned_subtree_crossover = self.orig
+
+    @staticmethod
+    def _probs(logits, temperature):
+        """As in crossover._sample_pair."""
+        import torch
+        flat = torch.clamp(logits / max(float(temperature), 1e-6), -10.0, 10.0).reshape(-1)
+        p = torch.clamp(torch.softmax(flat, dim=0), min=1e-8)
+        return (p / p.sum()).double().numpy()
+
+    @staticmethod
+    def _entropy(p):
+        n = len(p)
+        h = float(-(p * np.log(p)).sum())
+        return (h / np.log(n) if n > 1 else 1.0), float(np.log(n) - h)
+
+    def record(self, rec, temperature, scale, gen):
+        import torch
+        lx = self.lx
+        fa, fb = rec["a_features_all"], rec["b_features_all"]
+        with torch.no_grad():
+            la = lx.subtree_selector(fa, return_value=True)[0]
+            lb = lx.subtree_selector(fb, return_value=True)[0]
+            net = la.unsqueeze(1) + lb.unsqueeze(0)
+            p = self._probs(lx._structural_bias(net, fa, fb, scale), temperature)
+            p_net = self._probs(net, temperature)
+            p_heur = self._probs(lx._structural_bias(torch.zeros_like(net), fa, fb, scale), temperature)
+        n, nb = len(p), fb.shape[0]
+        drawn = rec["a_idx"] * nb + rec["b_idx"]
+        hn, kl = self._entropy(p)
+        hn_net, kl_net = self._entropy(p_net)
+        hn_heur, kl_heur = self._entropy(p_heur)
+        g = self.gens.setdefault(gen, {"stats": [], "headroom": None})
+        g["stats"].append([n, hn, kl, n * float(p.max()), n * float(p[drawn]), hn_net, kl_net, hn_heur, kl_heur])
+        if g["headroom"] is None:
+            g["headroom"] = self.headroom(rec, p, nb, drawn)
+
+    def headroom(self, rec, p, nb, drawn):
+        from scipy.stats import spearmanr
+        inputs, y = self.gp._score_data
+        f = lambda t: self.fitness(t, inputs, y, *self.coefs)
+        a, b = rec["parents"]
+        n = len(p)
+        idx = np.arange(n) if n <= HEADROOM_PAIRS else np.unique(np.append(self.rng.choice(n, HEADROOM_PAIRS, replace=False), drawn))
+        parent_best = min(f(a), f(b))
+        r = np.array([parent_best - min(map(f, self.lx.swap_subtrees(a, b, int(k // nb), int(k % nb)))) for k in idx])
+        q = p[idx] / p[idx].sum()
+        better = r > 0
+        rank = (np.argsort(np.argsort(r, kind="stable"), kind="stable") + 0.5) / len(r)
+        rho = spearmanr(np.log(p[idx]), r).statistic if len(set(r)) > 1 and len(set(p[idx])) > 1 else float("nan")
+        return {"n": n, "scored": len(idx), "frac_better": float(better.mean()), "frac_better_p": float(q @ better),
+                "drawn_pct": float(rank[np.flatnonzero(idx == drawn)[0]]), "rho": float(rho),
+                "r_max": float(r.max()), "r_median": float(np.median(r)), "frac_invalid": float((r < -1e17).mean())}
+
+    def summary(self):
+        """Per generation: the mean of each per-crossover statistic, and the headroom record."""
+        names = ["n", "hn", "kl", "max_ratio", "drawn_ratio", "hn_net", "kl_net", "hn_heur", "kl_heur"]
+        return {int(gen): {"crossovers": len(g["stats"]),
+                           **dict(zip(names, np.mean(g["stats"], axis=0).round(6).tolist())),
+                           "headroom": g["headroom"]} for gen, g in sorted(self.gens.items())}
+
+# ============================================================================
 # One symbolic-regression run
 # ============================================================================
 
@@ -386,7 +495,15 @@ def run_sr(task):
               "allow_pow": allow_pow,
               "metrics_callback": lambda gen, r2: curve.append(
                   [round(r2, 6), round(time.time() - t0, 3), counts["fitness"] + counts["selector"]])}
-        best, train_r2 = run_ga(X, y, var_names=names, unary_funcs=unary, **kw)
+        if arm.endswith("_diag"):
+            with Diagnostics(lx, gp, lx_fitness, kw["complexity_coef"], kw["inclusion_coef"],
+                             30_000 + seed + spec_id * 1000) as diag:
+                best, train_r2 = run_ga(X, y, var_names=names, unary_funcs=unary, **kw)
+            out = OUT_DIR / "diag" / opts["tag"]
+            out.mkdir(parents=True, exist_ok=True)
+            (out / f"{arm}_{spec_id}_{seed}.json").write_text(json.dumps(diag.summary()))
+        else:
+            best, train_r2 = run_ga(X, y, var_names=names, unary_funcs=unary, **kw)
         with np.errstate(all="ignore"):
             pred = best.evaluate({n: X_test[:, i] for i, n in enumerate(names)})
         row.update(train_r2=float("nan") if train_r2 is None else float(train_r2), test_r2=r2_of(y_test, pred),
@@ -502,7 +619,8 @@ def main():
             done = {(r["arm"], key[1](r[key[0]]), int(r["seed"])) for r in csv.DictReader(f)}
 
     if args.cmd == "sr":
-        opts ={"noise": args.noise, "protocol": args.protocol, "functions": args.functions, "memory_gb": args.memory_gb}
+        opts ={"noise": args.noise, "protocol": args.protocol, "functions": args.functions, "memory_gb": args.memory_gb,
+                "tag": args.tag}
         equations = [e for tok in args.equations.split(",") for e in (GROUPS[tok] if tok in GROUPS else [int(tok)])]
         arms = args.arms.split(",")
         unknown = [a for a in arms if a not in ARMS]

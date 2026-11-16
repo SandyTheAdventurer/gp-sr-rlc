@@ -66,7 +66,8 @@ def run_ga(
 
     crossover_operator replaces the learned selector, after the warmup and when use_learned_crossover
     is set, with a non-learned operator for comparison: "heuristic" (the structural bias alone),
-    "ssc" (semantic similarity-based crossover) or "sizefair" (size-fair crossover)."""
+    "ssc" (semantic similarity-based crossover), "sizefair" (size-fair crossover), or the diagnostics
+    "best" and "worst" (the best or worst of 16 uniform point pairs by child fitness)."""
     if seed is None:
         seed = gp.DEFAULT_SEED
     gp.set_global_seed(seed)
@@ -81,7 +82,6 @@ def run_ga(
 
     gp.configure_operators(unary_funcs, allow_pow)
     lx.clear_history()
-    lx.set_operator(crossover_operator, inputs)
 
     init_max_depth = max(1, max_init_depth)
     pop = [
@@ -122,6 +122,7 @@ def run_ga(
     n_samples = len(next(iter(inputs.values())))
     if y.shape[0] != n_samples:
         raise ValueError("y must have the same length as the input samples.")
+    lx.set_operator(crossover_operator, inputs, y, complexity_coef, inclusion_coef)
 
     def evaluate_r2(individual):
         try:
