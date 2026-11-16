@@ -10,6 +10,7 @@ Usage:
     python analysis.py circuits  [results/circuits.csv]
     python analysis.py figures   [results/main.csv]
     python analysis.py diag      (results/diag.csv, results/oracle.csv, results/main.csv, results/diag/diag/)
+    python analysis.py pysr      (results/pysr.csv, results/main.csv)
 
 `diag` (Run 5) was written after Runs 1-4 had been analysed, and before any Run 5 run.
 """
@@ -420,6 +421,22 @@ def analyse_diag(diag_csv, oracle_csv, main_csv, diag_dir):
     describe(rows_main + rows_oracle + rows_diag, ["random", "full", "best16", "worst16", "full_diag", "noent_diag"])
 
 
+# ============================================================================
+# Run 6: PySR as context (no claim depends on it)
+# ============================================================================
+
+
+def analyse_pysr(pysr_csv, main_csv):
+    rows_p = load(pysr_csv)
+    rows = rows_p + [r for r in load(main_csv) if r["arm"] in ("random", "full") and int(r["seed"]) < 10]
+    for name, sel in (("All 27 equations", lambda k: True), ("Nguyen", lambda k: k < 100),
+                      ("Keijzer", lambda k: k > 100)):
+        sub = [r for r in rows if sel(int(r["spec_id"]))]
+        print(f"\n{name} (seeds 0-9)")
+        describe(sub, ["random", "full", "pysr"])
+    print_test("For information only", paired(rows, "pysr", "full"))
+
+
 def main():
     cmd, args = sys.argv[1], sys.argv[2:]
     if cmd == "main":
@@ -432,6 +449,8 @@ def main():
         analyse_circuits(args[0] if args else RESULTS / "circuits.csv")
     elif cmd == "diag":
         analyse_diag(RESULTS / "diag.csv", RESULTS / "oracle.csv", RESULTS / "main.csv", RESULTS / "diag" / "diag")
+    elif cmd == "pysr":
+        analyse_pysr(RESULTS / "pysr.csv", RESULTS / "main.csv")
     elif cmd == "figures":
         figures(args[0] if args else RESULTS / "main.csv")
     else:

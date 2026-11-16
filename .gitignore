@@ -29,3 +29,4 @@ logs/
 
 # --- Paper working files (pasted into Overleaf by hand; not published) ---
 /papers/
+/.venv-pysr/

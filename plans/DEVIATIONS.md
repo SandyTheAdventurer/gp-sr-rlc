@@ -1,7 +1,7 @@
 # Deviations from the frozen plan (tag `plan-frozen`)
 
 ## 1. Two noise runs rerun after a timeout in the recovery check (2026-11-16)
-Of the 18,990 planned runs, two in Run 2 at noise 0.1 ended with status error, `TimeoutError()`:
+Of the 16,560 planned runs of Runs 1-4, two in Run 2 at noise 0.1 ended with status error, `TimeoutError()`:
 random on K9 seed 5, and full on N11 seed 15. In both, the GA had finished (test R² 0.9974 and 0.9995)
 and the error came from the recovery check afterwards.
 
@@ -18,7 +18,7 @@ finished with status ok and the same test R²: random K9 seed 5 not recovered, T
 recovered, TED 14. Their `elapsed_sec` was measured with 2 runs in parallel, not 10.
 
 The code was not changed: every run had already finished, and the race can only cause an error, not a wrong
-value. All 18,990 runs end with status ok.
+value. All 16,560 runs end with status ok.
 
 ## 2. A stale label in the protocol analysis (2026-11-16)
 `analysis.py protocol` printed "9 equations" in its title, left over from the held-out set. The title now

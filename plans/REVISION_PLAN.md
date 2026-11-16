@@ -189,9 +189,34 @@ pair's reward percentile and the Spearman correlation of log p with reward; and 
 best16 and worst16 spend 16 times the crossover evaluations; they bound what point choice can do and are
 not compared with the method on cost.
 
+## Run 6: PySR as context (R4.1, R5.1; added after Runs 1-5)
+**Status: approved by the author on 2026-11-17, before any fit.** Tagged `plan-frozen-run6`.
+
+Reviewers 4 and 5 ask where the method stands against established SR systems. A complete SR system differs
+from our GP in its search, operators, constant fitting and simplification all at once, so this comparison
+cannot isolate a crossover operator. PySR (Cranmer, 2023) is reported as a reference point next to our GP,
+not as a competitor, and no claim of the paper depends on it.
+
+- `pysr_context.py export` writes each run's exact training and test data (27 equations, seeds 0-9), as
+  `experiments.run_sr` builds them.
+- `pysr_context.py fit`: PySR 2.7.2 in its own environment (`.venv-pysr`), the same training data and the
+  benchmark's standard function set ({+, -, *, /, sin, cos, exp, log}, plus sqrt for Keijzer), 40
+  iterations, serial and deterministic with random_state = seed, PySR's defaults otherwise. PySR's own model
+  selection ("best") picks the final expression.
+- `pysr_context.py score`: test R² on the same test points; exact recovery with the GP runs' own check;
+  size is PySR's complexity (its node count).
+```
+python pysr_context.py export
+.venv-pysr/bin/python pysr_context.py fit 10
+python pysr_context.py score
+python analysis.py pysr
+```
+**Reporting:** a context table of median test R², solved fraction, recovery rate, median size and mean time
+for PySR, random crossover and GP-SR-RLC over seeds 0-9 of all 27 equations (the GP rows are Run 1's runs
+with those seeds), and the same per benchmark. A Wilcoxon test of PySR against GP-SR-RLC over the 27
+equations is given for information only.
+
 ## Not in this plan
-- **PySR context table (R4.1, R5.1).** It needs a separate PySR/Julia environment and its own scripts; it
-  will get its own section here, approved before it runs. It is context only, not a test.
 - Reviewer requests answered in the text without new runs: NeuroCrossover and Deep Neural Crossover
   (argued, not implemented), gplearn/Operon/DSR head-to-head (argued), the RL formulation questions (R5.5:
   trained from scratch per run, a contextual bandit, reward standardization).
