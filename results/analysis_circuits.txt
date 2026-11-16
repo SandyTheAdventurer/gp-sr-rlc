@@ -1,0 +1,13 @@
+
+Primary test (over targets; per-target median log10 relative error)
+  learned vs swap (log10 error)                              15W/13L/ 2T  p=0.733
+
+Secondary tests (Holm-corrected as one family)
+  learned vs uniform (log10 error)                           14W/15L/ 1T  p=0.596  Holm p=1
+  swap vs uniform (log10 error)                              12W/16L/ 2T  p=0.767  Holm p=1
+  learned vs swap (solved fraction)                          10W/10L/10T  p=0.954  Holm p=1
+
+arm       runs  med error  solved resistors   evals  time s
+swap       300   8.28e-04   0.173         4    4987    1.10
+learned    300   8.16e-04   0.173         4    8826    3.76
+uniform    300   9.16e-04   0.163         4    4983    1.08

@@ -1,0 +1,1 @@
+{"spec_id": 114, "seed": 0, "test_r2": 0.9982617792555869, "complexity": 18, "sympy": "sqrt(exp(sqrt(exp(cos(y)))*cos(0.9615534*x) + 1.075008919349*cos(0.906221*y)))", "elapsed_sec": 48.55}

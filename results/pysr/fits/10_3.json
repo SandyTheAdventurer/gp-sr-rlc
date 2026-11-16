@@ -1,0 +1,1 @@
+{"spec_id": 10, "seed": 3, "test_r2": 1.0, "complexity": 8, "sympy": "(sin(x) + sin(x))*cos(y)", "elapsed_sec": 31.45}

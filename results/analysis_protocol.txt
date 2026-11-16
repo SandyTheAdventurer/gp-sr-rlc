@@ -1,0 +1,10 @@
+
+Original Nguyen protocol (20 points, original ranges; 12 equations) (Holm-corrected as one family)
+  full vs random (median test R²)                             6W/ 6L/ 0T  p=0.519  Holm p=1
+  full vs random (recovery rate)                              2W/ 3L/ 7T  p=0.812  Holm p=1
+  full vs ssc (median test R²)                                5W/ 7L/ 0T  p=0.85  Holm p=1
+
+arm               runs  mean R²   med R²  solved  recov  size  time s     evals
+random             360   0.9745   0.9978   0.258  0.147     9     6.6     54518
+full               360   0.9734   0.9977   0.244  0.142    10    46.8    129973
+ssc                360   0.9704   0.9980   0.294  0.158     9     9.1     53563

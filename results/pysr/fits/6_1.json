@@ -1,0 +1,1 @@
+{"spec_id": 6, "seed": 1, "test_r2": 1.0, "complexity": 9, "sympy": "sin(x) + sin(x + x*x)", "elapsed_sec": 30.23}

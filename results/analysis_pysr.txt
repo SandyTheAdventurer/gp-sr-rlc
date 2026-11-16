@@ -1,0 +1,24 @@
+
+All 27 equations (seeds 0-9)
+
+arm               runs  mean R²   med R²  solved  recov  size  time s     evals
+random             270   0.9423   0.9897   0.348  0.219    13     7.4     51820
+full               270   0.9356   0.9917   0.378  0.215    13    43.2    122639
+pysr               270   0.9986   1.0000   0.800  0.578    14    27.7         0
+
+Nguyen (seeds 0-9)
+
+arm               runs  mean R²   med R²  solved  recov  size  time s     evals
+random             120   0.9687   0.9935   0.342  0.200    14     7.8     53530
+full               120   0.9691   0.9961   0.400  0.200    15    44.6    124632
+pysr               120   0.9997   1.0000   0.883  0.800    11    24.9         0
+
+Keijzer (seeds 0-9)
+
+arm               runs  mean R²   med R²  solved  recov  size  time s     evals
+random             150   0.9213   0.9781   0.353  0.233    10     7.1     50452
+full               150   0.9088   0.9839   0.360  0.227    10    42.1    121045
+pysr               150   0.9977   1.0000   0.733  0.400    17    29.9         0
+
+For information only
+  pysr vs full (median test R²)                              23W/ 0L/ 4T  p=2.7e-05

@@ -1,0 +1,1 @@
+{"spec_id": 12, "seed": 3, "test_r2": 0.9999999999999991, "complexity": 17, "sympy": "x*x*(-x + x*x) - y + y/((2.0000005/y))", "elapsed_sec": 17.28}

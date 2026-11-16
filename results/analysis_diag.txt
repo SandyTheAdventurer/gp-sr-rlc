@@ -1,0 +1,46 @@
+52 runs stopped before the warmup ended and have no diagnostics: full_diag eq=106 seed=1, full_diag eq=107 seed=0, full_diag eq=107 seed=1, full_diag eq=107 seed=2, full_diag eq=107 seed=3, full_diag eq=107 seed=4, full_diag eq=107 seed=5, full_diag eq=107 seed=6, full_diag eq=107 seed=7, full_diag eq=107 seed=8, full_diag eq=107 seed=9, full_diag eq=108 seed=0, full_diag eq=108 seed=1, full_diag eq=108 seed=2, full_diag eq=108 seed=3, full_diag eq=108 seed=4, full_diag eq=108 seed=5, full_diag eq=108 seed=6, full_diag eq=108 seed=7, full_diag eq=108 seed=8, full_diag eq=108 seed=9, full_diag eq=113 seed=5, full_diag eq=1 seed=4, full_diag eq=1 seed=5, full_diag eq=1 seed=9, full_diag eq=9 seed=3, noent_diag eq=106 seed=1, noent_diag eq=107 seed=0, noent_diag eq=107 seed=1, noent_diag eq=107 seed=2, noent_diag eq=107 seed=3, noent_diag eq=107 seed=4, noent_diag eq=107 seed=5, noent_diag eq=107 seed=6, noent_diag eq=107 seed=7, noent_diag eq=107 seed=8, noent_diag eq=107 seed=9, noent_diag eq=108 seed=0, noent_diag eq=108 seed=1, noent_diag eq=108 seed=2, noent_diag eq=108 seed=3, noent_diag eq=108 seed=4, noent_diag eq=108 seed=5, noent_diag eq=108 seed=6, noent_diag eq=108 seed=7, noent_diag eq=108 seed=8, noent_diag eq=108 seed=9, noent_diag eq=113 seed=5, noent_diag eq=1 seed=4, noent_diag eq=1 seed=5, noent_diag eq=1 seed=9, noent_diag eq=9 seed=3
+Check: 270 of 270 full_diag runs reproduce the main run's full arm exactly
+
+The policy's pair distribution (per run: mean over generations after the warmup; table: median [10th, 90th percentile] over runs)
+                                                full_diag                 noent_diag
+  KL(p || uniform), nats          0.0461 [ 0.002,  0.276]    0.0812 [ 0.002,  0.571]
+    first 30 generations          0.0003 [ 0.000,  0.001]    0.0004 [ 0.000,  0.001]
+    last 30 generations           0.1070 [ 0.004,  0.910]    0.2865 [ 0.004,  2.062]
+  H(p) / log N                    0.9858 [ 0.922,  0.999]    0.9750 [ 0.852,  0.999]
+  N * max p                       1.5234 [ 1.107,  3.017]    1.7853 [ 1.104,  6.803]
+  N * p(drawn pair)               1.0906 [ 1.004,  1.781]    1.1792 [ 1.004,  4.565]
+  KL, network alone               0.0459 [ 0.002,  0.274]    0.0806 [ 0.002,  0.568]
+  KL, heuristic alone             0.0000 [ 0.000,  0.000]    0.0000 [ 0.000,  0.000]
+  pairs N                        57.0149 [26.493, 143.309]   59.2638 [27.140, 154.761]
+  H1 (near-uniform: median run KL < 0.05 nats): supported (median 0.0461)
+
+How much the point choice can matter (once per generation, every point pair scored; median [10th, 90th percentile] over runs)
+  fraction of pairs whose better child beats the better parent   full_diag    0.0159 [ 0.0046,  0.0353]
+  fraction of pairs whose better child beats the better parent   noent_diag   0.0155 [ 0.0046,  0.0388]
+  chance the best of 16 uniform pairs does                       full_diag    0.1088 [ 0.0364,  0.2149]
+  chance the best of 16 uniform pairs does                       noent_diag   0.1025 [ 0.0273,  0.2220]
+  chance at least one pair does                                  full_diag    0.1941 [ 0.0529,  0.3881]
+  chance at least one pair does                                  noent_diag   0.1882 [ 0.0471,  0.3924]
+  policy minus uniform, fraction beating the better parent       full_diag    0.0000 [-0.0012,  0.0015]
+  policy minus uniform, fraction beating the better parent       noent_diag  -0.0000 [-0.0013,  0.0017]
+  drawn pair's reward percentile (0.5 = uniform)                 full_diag    0.5281 [ 0.4912,  0.5795]
+  drawn pair's reward percentile (0.5 = uniform)                 noent_diag   0.5349 [ 0.4889,  0.6111]
+  Spearman(log p, reward)                                        full_diag    0.2878 [ 0.1430,  0.4790]
+  Spearman(log p, reward)                                        noent_diag   0.2856 [ 0.1132,  0.4745]
+
+Run 5 tests (Holm-corrected as one family)
+  noent_diag vs full_diag (kl)                               22W/ 3L/ 0T  p=1.23e-05  Holm p=6.17e-05
+  full_diag: lift vs 0                                       12W/12L/ 1T  p=0.407  Holm p=0.661
+  best16 vs random (median test R²)                          20W/ 3L/ 4T  p=0.00141  Holm p=0.00422
+  worst16 vs random (median test R²)                          0W/24L/ 3T  p=1.82e-05  Holm p=7.29e-05
+  noent_diag vs full_diag (median test R²)                   10W/13L/ 4T  p=0.33  Holm p=0.661
+
+Descriptive
+
+arm               runs  mean R²   med R²  solved  recov  size  time s     evals
+random             810   0.9385   0.9903   0.359  0.225    13     7.4     51015
+full               810   0.9350   0.9911   0.367  0.209    13    43.3    123348
+best16             810   0.9478   0.9940   0.407  0.212    14    61.2    735299
+worst16            810   0.8347   0.9508   0.256  0.143     8    15.8    774224
+full_diag          270   0.9356   0.9917   0.378  0.215    13    62.8    122639
+noent_diag         270   0.9393   0.9893   0.352  0.207    12    63.1    122843

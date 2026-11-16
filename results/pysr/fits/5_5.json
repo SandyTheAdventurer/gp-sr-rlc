@@ -1,0 +1,1 @@
+{"spec_id": 5, "seed": 5, "test_r2": 0.9999999999999293, "complexity": 17, "sympy": "x/(-x - x + x) - cos(x)*cos(x*x + 1.5707964)", "elapsed_sec": 18.96}

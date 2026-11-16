@@ -1,0 +1,18 @@
+
+Noise run noise01 (Holm-corrected as one family)
+  full vs random (median test R²)                            14W/11L/ 2T  p=0.638  Holm p=0.824
+  full vs ssc (median test R²)                               11W/14L/ 2T  p=0.412  Holm p=0.824
+
+arm               runs  mean R²   med R²  solved  recov  size  time s     evals
+random             810   0.9375   0.9913   0.365  0.132    13     8.5     60000
+full               810   0.9303   0.9903   0.375  0.132    13    50.9    145866
+ssc                810   0.9428   0.9904   0.375  0.135    13    14.7     60000
+
+Noise run noise10 (Holm-corrected as one family)
+  full vs random (median test R²)                            16W/11L/ 0T  p=0.148  Holm p=0.296
+  full vs ssc (median test R²)                               17W/10L/ 0T  p=0.29  Holm p=0.296
+
+arm               runs  mean R²   med R²  solved  recov  size  time s     evals
+random             810   0.9236   0.9894   0.243  0.058    15     9.1     60000
+full               810   0.9125   0.9879   0.235  0.058    16    52.9    145859
+ssc                810   0.9128   0.9871   0.209  0.036    16    16.1     60000

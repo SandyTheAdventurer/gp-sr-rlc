@@ -1,0 +1,78 @@
+
+Primary test
+  full vs random (median test R²)                            12W/11L/ 4T  p=0.784
+
+Secondary tests (Holm-corrected as one family)
+  full vs random (solved fraction)                            7W/ 7L/13T  p=0.777  Holm p=1
+  full vs random (recovery rate)                              1W/ 8L/18T  p=0.0147  Holm p=0.162
+  full vs heuristic (median test R²)                          7W/16L/ 4T  p=0.0447  Holm p=0.447
+  full vs policy (median test R²)                            11W/12L/ 4T  p=0.484  Holm p=1
+  policy vs random (median test R²)                          15W/ 8L/ 4T  p=0.114  Holm p=1
+  heuristic vs random (median test R²)                       14W/ 9L/ 4T  p=0.136  Holm p=1
+  full vs nocritic (median test R²)                           9W/14L/ 4T  p=0.693  Holm p=1
+  full_noconst vs random_noconst (median test R²)            15W/ 9L/ 3T  p=0.607  Holm p=1
+  full_m01 vs random_m01 (median test R²)                    14W/11L/ 2T  p=0.657  Holm p=1
+  full vs ssc (median test R²)                                4W/19L/ 4T  p=0.00386  Holm p=0.0502
+  full vs sizefair (median test R²)                          11W/11L/ 5T  p=0.57  Holm p=1
+  ssc vs random (median test R²)                             17W/ 6L/ 4T  p=0.0089  Holm p=0.107
+  sizefair vs random (median test R²)                        14W/ 9L/ 4T  p=0.761  Holm p=1
+  full vs random_x3 (median test R²)                          0W/23L/ 4T  p=2.7e-05  Holm p=0.000378
+
+Descriptive
+
+arm               runs  mean R²   med R²  solved  recov  size  time s     evals
+random             810   0.9385   0.9903   0.359  0.225    13     7.4     51015
+full               810   0.9350   0.9911   0.367  0.209    13    43.3    123348
+policy             810   0.9352   0.9896   0.368  0.216    13    43.1    123007
+heuristic          810   0.9363   0.9892   0.363  0.226    12    15.1     50925
+nocritic           810   0.9338   0.9912   0.358  0.211    13    39.6    123406
+full_noconst       810   0.9368   0.9867   0.349  0.168    14    44.0    126663
+random_noconst     810   0.9338   0.9873   0.351  0.164    14     7.1     52593
+full_m01           810   0.8838   0.9723   0.264  0.149    12    43.0    130081
+random_m01         810   0.8826   0.9718   0.289  0.172    11     6.1     53340
+ssc                810   0.9390   0.9903   0.367  0.206    13    12.7     51490
+sizefair           810   0.9307   0.9908   0.378  0.226    12     7.2     50822
+random_x3          810   0.9659   0.9974   0.456  0.296    14    29.3    143041
+
+Per equation: full vs random, Mann-Whitney U on test R², Holm over 27 equations
+    eq     full med   random med    A12        p   Holm p
+    N1       1.0000       1.0000  0.481    0.652        1
+    N2       0.9998       0.9995  0.487    0.862        1
+    N3       0.9980       0.9946  0.571    0.352        1
+    N4       0.9912       0.9917  0.560    0.429        1
+    N5       0.9237       0.9753  0.416    0.264        1
+    N6       0.8942       0.8921  0.494    0.947        1
+    N7       0.9999       0.9998  0.580     0.29        1
+    N8       0.9690       0.9665  0.527    0.728        1
+    N9       0.9995       0.9996  0.421    0.293        1
+   N10       0.9995       0.9987  0.513    0.862        1
+   N11       0.9700       0.9744  0.452    0.529        1
+   N12       0.9833       0.9791  0.523    0.762        1
+    K1       0.8261       0.8156  0.557    0.451        1
+    K2       0.8240       0.8216  0.509    0.912        1
+    K3       0.6776       0.7363  0.481    0.807        1
+    K4       0.9002       0.8943  0.507    0.935        1
+    K5       0.9938       0.9939  0.437    0.404        1
+    K6       1.0000       1.0000  0.398    0.175        1
+    K7       1.0000       1.0000  0.500        1        1
+    K8       1.0000       1.0000  0.500        1        1
+    K9       1.0000       1.0000  0.473    0.728        1
+   K10       0.9597       0.9607  0.477    0.762        1
+   K11       0.9563       0.9548  0.581    0.284        1
+   K12       0.9864       0.9859  0.487    0.865        1
+   K13       1.0000       1.0000  0.465     0.59        1
+   K14       0.8345       0.8745  0.497    0.971        1
+   K15       0.9530       0.9586  0.477    0.762        1
+
+Descriptive: Keijzer's original test sets (15 equations)
+  full vs random (median R² on Keijzer's test set)            5W/ 7L/ 3T  p=0.388
+  K4 (extrapolates): full median 0.8982, random 0.8910, A12 0.498, Mann-Whitney p=0.982
+  K6 (extrapolates): full median 1.0000, random 1.0000, A12 0.400, Mann-Whitney p=0.184
+
+Descriptive: by benchmark
+
+Nguyen
+  full vs random (median test R²)                             7W/ 4L/ 1T  p=0.577
+
+Keijzer
+  full vs random (median test R²)                             5W/ 7L/ 3T  p=0.814

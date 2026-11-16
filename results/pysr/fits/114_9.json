@@ -1,0 +1,1 @@
+{"spec_id": 114, "seed": 9, "test_r2": 0.9987976224539132, "complexity": 20, "sympy": "(exp(cos(cos(x))*cos(cos(y))) + exp(cos(x))*exp(cos(y))/0.5348697)*0.2609809", "elapsed_sec": 50.88}
