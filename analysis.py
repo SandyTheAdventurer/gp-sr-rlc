@@ -298,6 +298,7 @@ def figures(path):
             grid = np.linspace(0, np.median([c[-1][j] for c in cs]), 200)
             vals = np.array([np.interp(grid, [p[j] for p in c], [max(p[0], 0) for p in c]) for c in cs])
             ax.plot(grid, np.median(vals, axis=0), label=arm)
+    axes[1].ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
     for ax, xl in zip(axes, ("generation", "fitness evaluations", "seconds")):
         ax.set_xlabel(xl)
         ax.set_ylabel("median best train R²")
